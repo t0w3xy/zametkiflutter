@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import 'cubit/notes_cubit.dart';
 
 void main() {
   runApp(const NotesApp());
@@ -9,14 +12,14 @@ class NotesApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Заметки',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorSchemeSeed: Colors.indigo,
-        useMaterial3: true,
+    return BlocProvider(
+      create: (_) => NotesCubit(),
+      child: MaterialApp(
+        title: 'Заметки',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
+        home: const NotesPage(),
       ),
-      home: const NotesPage(),
     );
   }
 }
@@ -30,12 +33,6 @@ class NotesPage extends StatefulWidget {
 
 class _NotesPageState extends State<NotesPage> {
   final TextEditingController _controller = TextEditingController();
-  final List<String> _notes = [];
-
-  // Индекс редактируемой заметки (null — режим добавления)
-  int? _editingIndex;
-
-  bool get _isEditing => _editingIndex != null;
 
   @override
   void dispose() {
@@ -43,133 +40,108 @@ class _NotesPageState extends State<NotesPage> {
     super.dispose();
   }
 
-  // Сохранение новой заметки или обновление существующей
-  void _saveNote() {
-    final text = _controller.text.trim();
-    if (text.isEmpty) return;
-
-    setState(() {
-      if (_isEditing) {
-        _notes[_editingIndex!] = text;
-        _editingIndex = null;
-      } else {
-        _notes.add(text);
-      }
-      _controller.clear();
-    });
+  void _onSavePressed() {
+    if (_controller.text.trim().isEmpty) return;
+    context.read<NotesCubit>().saveNote(_controller.text);
+    _controller.clear();
     FocusScope.of(context).unfocus();
-  }
-
-  // Переход в режим редактирования
-  void _startEditing(int index) {
-    setState(() {
-      _editingIndex = index;
-      _controller.text = _notes[index];
-      _controller.selection = TextSelection.fromPosition(
-        TextPosition(offset: _controller.text.length),
-      );
-    });
-  }
-
-  // Отмена редактирования
-  void _cancelEditing() {
-    setState(() {
-      _editingIndex = null;
-      _controller.clear();
-    });
-    FocusScope.of(context).unfocus();
-  }
-
-  // Удаление заметки
-  void _deleteNote(int index) {
-    setState(() {
-      _notes.removeAt(index);
-
-      if (_editingIndex != null) {
-        if (_editingIndex == index) {
-          // Удалили заметку, которую редактировали
-          _editingIndex = null;
-          _controller.clear();
-        } else if (_editingIndex! > index) {
-          // Сдвиг индекса после удаления элемента выше
-          _editingIndex = _editingIndex! - 1;
-        }
-      }
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Заметки'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Заметки'), centerTitle: true),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _controller,
-              maxLines: null,
-              decoration: InputDecoration(
-                labelText: _isEditing ? 'Редактирование заметки' : 'Новая заметка',
-                border: const OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
+        child: BlocConsumer<NotesCubit, NotesState>(
+          listenWhen: (prev, curr) => prev.editingId != curr.editingId,
+          listener: (context, state) {
+            if (state.editingId == null) {
+              _controller.clear();
+            } else {
+              final note =
+                  state.notes.firstWhere((n) => n.id == state.editingId);
+              _controller.text = note.text;
+              _controller.selection = TextSelection.fromPosition(
+                TextPosition(offset: _controller.text.length),
+              );
+            }
+          },
+          builder: (context, state) {
+            return Column(
               children: [
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _saveNote,
-                    child: Text(_isEditing ? 'Обновить' : 'Сохранить'),
+                TextField(
+                  controller: _controller,
+                  maxLines: null,
+                  decoration: InputDecoration(
+                    labelText: state.isEditing
+                        ? 'Редактирование заметки'
+                        : 'Новая заметка',
+                    border: const OutlineInputBorder(),
                   ),
                 ),
-                if (_isEditing) ...[
-                  const SizedBox(width: 12),
-                  OutlinedButton(
-                    onPressed: _cancelEditing,
-                    child: const Text('Отмена'),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: _notes.isEmpty
-                  ? const Center(child: Text('Заметок пока нет'))
-                  : ListView.builder(
-                      itemCount: _notes.length,
-                      itemBuilder: (context, index) {
-                        final isSelected = _editingIndex == index;
-                        return Card(
-                          color: isSelected
-                              ? Theme.of(context).colorScheme.primaryContainer
-                              : null,
-                          child: ListTile(
-                            title: Text(_notes[index]),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit),
-                                  tooltip: 'Редактировать',
-                                  onPressed: () => _startEditing(index),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete),
-                                  tooltip: 'Удалить',
-                                  onPressed: () => _deleteNote(index),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _onSavePressed,
+                        child: Text(state.isEditing ? 'Обновить' : 'Сохранить'),
+                      ),
                     ),
-            ),
-          ],
+                    if (state.isEditing) ...[
+                      const SizedBox(width: 12),
+                      OutlinedButton(
+                        onPressed: () => context.read<NotesCubit>().cancelEdit(),
+                        child: const Text('Отмена'),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: state.notes.isEmpty
+                      ? const Center(child: Text('Заметок пока нет'))
+                      : ListView.builder(
+                          itemCount: state.notes.length,
+                          itemBuilder: (context, index) {
+                            final note = state.notes[index];
+                            final isSelected = state.editingId == note.id;
+                            return Card(
+                              color: isSelected
+                                  ? Theme.of(context)
+                                      .colorScheme
+                                      .primaryContainer
+                                  : null,
+                              child: ListTile(
+                                title: Text(note.text),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.edit),
+                                      tooltip: 'Редактировать',
+                                      onPressed: () => context
+                                          .read<NotesCubit>()
+                                          .startEdit(note.id),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete),
+                                      tooltip: 'Удалить',
+                                      onPressed: () => context
+                                          .read<NotesCubit>()
+                                          .deleteNote(note.id),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
