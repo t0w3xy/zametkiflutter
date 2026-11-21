@@ -8,16 +8,18 @@ class NotesCubit extends Cubit<NotesState> {
 
   NotesCubit() : super(const NotesState());
 
+  // Добавление новой заметки или обновление редактируемой
   void saveNote(String text) {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
     final editingId = state.editingId;
     if (editingId != null) {
+      // copyWith сохраняет статус «важная» при редактировании
       emit(NotesState(
         notes: [
           for (final note in state.notes)
-            note.id == editingId ? Note(id: note.id, text: trimmed) : note,
+            note.id == editingId ? note.copyWith(text: trimmed) : note,
         ],
       ));
     } else {
@@ -39,6 +41,22 @@ class NotesCubit extends Cubit<NotesState> {
     emit(NotesState(
       notes: state.notes.where((n) => n.id != id).toList(),
       editingId: state.editingId == id ? null : state.editingId,
+    ));
+  }
+
+  // Двойное нажатие — отметить как важную
+  void markImportant(int id) => _setImportant(id, true);
+
+  // Свайп вправо — вернуть обычный статус
+  void restoreNote(int id) => _setImportant(id, false);
+
+  void _setImportant(int id, bool value) {
+    emit(NotesState(
+      notes: [
+        for (final note in state.notes)
+          note.id == id ? note.copyWith(isImportant: value) : note,
+      ],
+      editingId: state.editingId,
     ));
   }
 }
